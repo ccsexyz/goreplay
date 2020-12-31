@@ -19,6 +19,7 @@ package proto
 import (
 	"bufio"
 	"bytes"
+	"log"
 	"net/http"
 	"net/textproto"
 	"strings"
@@ -384,6 +385,10 @@ func HasRequestTitle(payload []byte) bool {
 	}
 	path := strings.Index(s[len(method)+1:], " ")
 	if path == -1 {
+		return false
+	}
+	if path+len(method)+2 >= titleLen {
+		log.Println("[PROTO] invalid payload", s)
 		return false
 	}
 	major, minor, ok := http.ParseHTTPVersion(s[path+len(method)+2 : titleLen])

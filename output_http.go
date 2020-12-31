@@ -5,15 +5,19 @@ import (
 	"bytes"
 	"crypto/tls"
 	"fmt"
+	"io"
+	"io/ioutil"
 	"log"
 	"math"
+	"net"
 	"net/http"
-	"net/http/httputil"
 	"net/url"
+	"strconv"
 	"sync/atomic"
 	"time"
 
 	"github.com/buger/goreplay/size"
+	"golang.org/x/time/rate"
 )
 
 const (
@@ -31,21 +35,26 @@ type response struct {
 
 // HTTPOutputConfig struct for holding http output configuration
 type HTTPOutputConfig struct {
-	TrackResponses bool          `json:"output-http-track-response"`
-	Stats          bool          `json:"output-http-stats"`
-	OriginalHost   bool          `json:"output-http-original-host"`
-	RedirectLimit  int           `json:"output-http-redirect-limit"`
-	WorkersMin     int           `json:"output-http-workers-min"`
-	WorkersMax     int           `json:"output-http-workers"`
-	StatsMs        int           `json:"output-http-stats-ms"`
-	QueueLen       int           `json:"output-http-queue-len"`
-	ElasticSearch  string        `json:"output-http-elasticsearch"`
-	Timeout        time.Duration `json:"output-http-timeout"`
-	WorkerTimeout  time.Duration `json:"output-http-worker-timeout"`
-	BufferSize     size.Size     `json:"output-http-response-buffer"`
-	SkipVerify     bool          `json:"output-http-skip-verify"`
-	rawURL         string
-	url            *url.URL
+	TrackResponses  bool          `json:"output-http-track-response"`
+	Stats           bool          `json:"output-http-stats"`
+	OriginalHost    bool          `json:"output-http-original-host"`
+	RedirectLimit   int           `json:"output-http-redirect-limit"`
+	WorkersMin      int           `json:"output-http-workers-min"`
+	WorkersMax      int           `json:"output-http-workers"`
+	StatsMs         int           `json:"output-http-stats-ms"`
+	QueueLen        int           `json:"output-http-queue-len"`
+	ElasticSearch   string        `json:"output-http-elasticsearch"`
+	BodyLimitHeader string        `json:"output-http-body-limit-header"`
+	AddrHeader      string        `json:"output-http-addr-header"`
+	PortHeader      string        `json:"output-http-port-header"`
+	PortDiff        int           `json:"output-http-port-diff"`
+	LimitRate       int           `json:"output-http-limit-rate"`
+	Timeout         time.Duration `json:"output-http-timeout"`
+	WorkerTimeout   time.Duration `json:"output-http-worker-timeout"`
+	BufferSize      size.Size     `json:"output-http-response-buffer"`
+	SkipVerify      bool          `json:"output-http-skip-verify"`
+	rawURL          string
+	url             *url.URL
 }
 
 // HTTPOutput plugin manage pool of workers which send request to replayed server
@@ -272,14 +281,36 @@ func NewHTTPClient(config *HTTPOutputConfig) *HTTPClient {
 			return nil
 		},
 	}
+	// clone to avoid modying global default RoundTripper
+	transport = http.DefaultTransport.(*http.Transport).Clone()
+
 	if config.SkipVerify {
-		// clone to avoid modying global default RoundTripper
-		transport = http.DefaultTransport.(*http.Transport).Clone()
 		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-		client.Client.Transport = transport
 	}
 
+	transport.DisableCompression = true
+
+	client.Client.Transport = transport
+
 	return client
+}
+
+type limitWriter struct {
+	limiter *rate.Limiter
+}
+
+func (l *limitWriter) Write(b []byte) (n int, err error) {
+	var m int
+	for n = len(b); n > 0; n -= m {
+		m = 16 * 1024
+		if n < m {
+			m = n
+		}
+		r := l.limiter.ReserveN(time.Now(), m)
+		time.Sleep(r.Delay())
+	}
+	n = len(b)
+	return
 }
 
 // Send sends an http request using client create by NewHTTPClient
@@ -287,6 +318,8 @@ func (c *HTTPClient) Send(data []byte) ([]byte, error) {
 	var req *http.Request
 	var resp *http.Response
 	var err error
+	var bodyRead int64
+	var bodyLimit int64
 
 	req, err = http.ReadRequest(bufio.NewReader(bytes.NewReader(data)))
 	if err != nil {
@@ -297,18 +330,79 @@ func (c *HTTPClient) Send(data []byte) ([]byte, error) {
 		return nil, nil
 	}
 
+	url := c.config.url
+
+	if c.config.AddrHeader != "" {
+		addr := req.Header.Get(c.config.AddrHeader)
+		req.Header.Del(c.config.AddrHeader)
+
+		if addr != "" {
+			addr = "http://" + addr
+			url0, err0 := url.Parse(addr)
+
+			if err0 == nil {
+				if url0.Scheme == "" {
+					url0.Scheme = "http"
+				}
+
+				url = url0
+			} else {
+				log.Println("failed to parse", addr, err0)
+			}
+		}
+	}
+
+	if c.config.PortHeader != "" {
+		port := req.Header.Get(c.config.PortHeader)
+		req.Header.Del(c.config.PortHeader)
+
+		if port != "" {
+			if c.config.PortDiff != 0 {
+				num, err0 := strconv.Atoi(port)
+
+				if err0 == nil {
+					num += c.config.PortDiff
+					port = strconv.Itoa(num)
+				}
+			}
+
+			url0 := *url
+			host0, _, err0 := net.SplitHostPort(url.Host)
+			if err0 == nil {
+				url0.Host = host0 + ":" + port
+			} else {
+				url0.Host = url0.Host + ":" + port
+			}
+			url = &url0
+		}
+	}
+
+	bodyLimit = -1
+	if c.config.BodyLimitHeader != "" {
+		bodyLimitValue := req.Header.Get(c.config.BodyLimitHeader)
+		req.Header.Del(c.config.BodyLimitHeader)
+
+		if bodyLimitValue != "" {
+			n, err1 := strconv.ParseInt(bodyLimitValue, 10, 64)
+
+			if err1 == nil && n >= 0 {
+				bodyLimit = n
+			}
+		}
+	}
+
 	if !c.config.OriginalHost {
-		req.Host = c.config.url.Host
+		req.Host = url.Host
 	}
-	
+
 	// fix #862
-	if c.config.url.Path == "" && c.config.url.RawQuery == "" {
-		req.URL.Scheme = c.config.url.Scheme
-		req.URL.Host = c.config.url.Host
+	if url.Path == "" && url.RawQuery == "" {
+		req.URL.Scheme = url.Scheme
+		req.URL.Host = url.Host
 	} else {
-		req.URL = c.config.url
+		req.URL = url
 	}
-	
+
 	// force connection to not be closed, which can affect the global client
 	req.Close = false
 	// it's an error if this is not equal to empty string
@@ -316,10 +410,28 @@ func (c *HTTPClient) Send(data []byte) ([]byte, error) {
 
 	resp, err = c.Client.Do(req)
 	if err != nil {
+		log.Println("[OUTPUT-HTTP] got error", err)
 		return nil, err
 	}
-	if c.config.TrackResponses {
-		return httputil.DumpResponse(resp, true)
+	defer resp.Body.Close()
+
+	var bw io.Writer
+	bw = ioutil.Discard
+	if c.config.LimitRate > 0 {
+		l := new(limitWriter)
+		l.limiter = rate.NewLimiter((rate.Limit)(c.config.LimitRate), 1024*16)
+		bw = l
+	} else {
+		bw = ioutil.Discard
 	}
+	if bodyLimit >= 0 {
+		bodyRead, err = io.CopyN(bw, resp.Body, bodyLimit)
+	} else {
+		bodyRead, err = io.Copy(bw, resp.Body)
+	}
+	if err != nil {
+		log.Println("[OUTPUT-HTTP] after read", bodyRead, "bytes body, got error", err)
+	}
+	Debug(1, bodyRead, err)
 	return nil, nil
 }

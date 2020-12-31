@@ -52,6 +52,9 @@ func NewMiddleware(command string) *Middleware {
 
 		if err != nil {
 			log.Fatal(err)
+		} else {
+			// fix: program hangs after Middleware crashes
+			log.Fatal("middleware unexpectedly exit!")
 		}
 	}()
 
@@ -65,8 +68,6 @@ func (m *Middleware) ReadFrom(plugin PluginReader) {
 }
 
 func (m *Middleware) copy(to io.Writer, from PluginReader) {
-	var buf, dst []byte
-
 	for {
 		msg, err := from.PluginRead()
 		if err != nil {
@@ -76,10 +77,16 @@ func (m *Middleware) copy(to io.Writer, from PluginReader) {
 			continue
 		}
 
+		data := msg.Data
 		if Settings.PrettifyHTTP {
-			buf = prettifyHTTP(msg.Data)
+			data = prettifyHTTP(data)
 		}
-		dst = make([]byte, len(buf)*2+1)
+
+		buf := make([]byte, len(msg.Meta)+len(data))
+		copy(buf, msg.Meta)
+		copy(buf[len(msg.Meta):], data)
+
+		dst := make([]byte, len(buf)*2+1)
 		hex.Encode(dst, buf)
 		dst[len(buf)*2] = '\n'
 
@@ -102,7 +109,12 @@ func (m *Middleware) read(from io.Reader) {
 			}
 		}
 
-		buf := make([]byte, len(line)/2-1)
+		if len(line) < 4 {
+			log.Println("[MIDDLEWARE] invalid line, len =", len(line), "line =", line)
+			continue
+		}
+
+		buf := make([]byte, len(line)/2)
 		if _, err := hex.Decode(buf, line[:len(line)-1]); err != nil {
 			Debug(0, fmt.Sprintf("[MIDDLEWARE] failed to decode err: %q", err))
 			continue

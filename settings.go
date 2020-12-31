@@ -53,7 +53,7 @@ type AppSettings struct {
 	InputRAW MultiOption `json:"input_raw"`
 	RAWInputConfig
 
-	Middleware string `json:"middleware"`
+	Middleware MultiOption `json:"middleware"`
 
 	InputHTTP    MultiOption
 	OutputHTTP   MultiOption `json:"output-http"`
@@ -103,6 +103,8 @@ func init() {
 	flag.BoolVar(&Settings.InputTCPConfig.Secure, "input-tcp-secure", false, "Turn on TLS security. Do not forget to specify certificate and key files.")
 	flag.StringVar(&Settings.InputTCPConfig.CertificatePath, "input-tcp-certificate", "", "Path to PEM encoded certificate file. Used when TLS turned on.")
 	flag.StringVar(&Settings.InputTCPConfig.KeyPath, "input-tcp-certificate-key", "", "Path to PEM encoded certificate key file. Used when TLS turned on.")
+	flag.DurationVar(&Settings.InputTCPConfig.Timeout, "input-tcp-timeout", 5*time.Second, "Specify TCP intput timeout. By default 5s. Example --input-tcp-timeout 5s")
+	flag.Var(&Settings.InputTCPConfig.BlockIPs, "input-tcp-block-ip", "Block connection from these ip, eg: --input-tcp-block-ip 1.1.1.1")
 
 	flag.Var(&Settings.OutputTCP, "output-tcp", "Used for internal communication between Gor instances. Example: \n\t# Listen for requests on 80 port and forward them to other Gor instance on 28020 port\n\tgor --input-raw :80 --output-tcp replay.local:28020")
 	flag.BoolVar(&Settings.OutputTCPConfig.Secure, "output-tcp-secure", false, "Use TLS secure connection. --input-file on another end should have TLS turned on as well.")
@@ -142,7 +144,7 @@ func init() {
 	flag.BoolVar(&Settings.Monitor, "input-raw-monitor", false, "enable RF monitor mode")
 	flag.BoolVar(&Settings.Stats, "input-raw-stats", false, "enable stats generator on raw TCP messages")
 
-	flag.StringVar(&Settings.Middleware, "middleware", "", "Used for modifying traffic using external command")
+	flag.Var(&Settings.Middleware, "middleware", "Used for modifying traffic using external command")
 
 	flag.Var(&Settings.OutputHTTP, "output-http", "Forwards incoming requests to given http address.\n\t# Redirect all incoming requests to staging.com address \n\tgor --input-raw :80 --output-http http://staging.com")
 
@@ -162,6 +164,11 @@ func init() {
 	flag.IntVar(&Settings.OutputHTTPConfig.StatsMs, "output-http-stats-ms", 5000, "Report http output queue stats to console every N milliseconds. default: 5000")
 	flag.BoolVar(&Settings.OutputHTTPConfig.OriginalHost, "http-original-host", false, "Normally gor replaces the Host http header with the host supplied with --output-http.  This option disables that behavior, preserving the original Host header.")
 	flag.StringVar(&Settings.OutputHTTPConfig.ElasticSearch, "output-http-elasticsearch", "", "Send request and response stats to ElasticSearch:\n\tgor --input-raw :8080 --output-http staging.com --output-http-elasticsearch 'es_host:api_port/index_name'")
+	flag.StringVar(&Settings.OutputHTTPConfig.BodyLimitHeader, "output-http-response-limit-header", "", "limit max response body size by http header")
+	flag.StringVar(&Settings.OutputHTTPConfig.AddrHeader, "output-http-addr-header", "", "set output http address header name")
+	flag.StringVar(&Settings.OutputHTTPConfig.PortHeader, "output-http-port-header", "", "set output http port header name")
+	flag.IntVar(&Settings.OutputHTTPConfig.PortDiff, "output-http-port-diff", 0, "the diff of port header and actual used port")
+	flag.IntVar(&Settings.OutputHTTPConfig.LimitRate, "output-http-limit-rate", 0, "set the limit rate of http client")
 	/* outputHTTPConfig */
 
 	flag.Var(&Settings.OutputBinary, "output-binary", "Forwards incoming binary payloads to given address.\n\t# Redirect all incoming requests to staging.com address \n\tgor --input-raw :80 --input-raw-protocol binary --output-binary staging.com:80")

@@ -23,28 +23,43 @@ func NewEmitter() *Emitter {
 }
 
 // Start initialize loop for sending data from inputs to outputs
-func (e *Emitter) Start(plugins *InOutPlugins, middlewareCmd string) {
+func (e *Emitter) Start(plugins *InOutPlugins, middlewareCmds []string) {
 	if Settings.CopyBufferSize < 1 {
 		Settings.CopyBufferSize = 5 << 20
 	}
 	e.plugins = plugins
 
-	if middlewareCmd != "" {
-		middleware := NewMiddleware(middlewareCmd)
-
-		for _, in := range plugins.Inputs {
-			middleware.ReadFrom(in)
+	if len(middlewareCmds) > 0 {
+		middlewares := make([]*Middleware, 0, len(middlewareCmds))
+		for _, cmd := range middlewareCmds {
+			middleware := NewMiddleware(cmd)
+			middlewares = append(middlewares, middleware)
 		}
 
-		e.plugins.Inputs = append(e.plugins.Inputs, middleware)
-		e.plugins.All = append(e.plugins.All, middleware)
-		e.Add(1)
+		first := middlewares[0]
+
+		for _, in := range plugins.Inputs {
+			first.ReadFrom(in)
+		}
+
+		for it := 1; it < len(middlewares); it++ {
+			middlewares[it].ReadFrom(middlewares[it-1])
+		}
+
+		last := middlewares[len(middlewares)-1]
+
 		go func() {
 			defer e.Done()
-			if err := CopyMulty(middleware, plugins.Outputs...); err != nil {
+			if err := CopyMulty(last, plugins.Outputs...); err != nil {
 				Debug(2, fmt.Sprintf("[EMITTER] error during copy: %q", err))
 			}
 		}()
+
+		for _, middleware := range middlewares {
+			e.plugins.Inputs = append(e.plugins.Inputs, middleware)
+			e.plugins.All = append(e.plugins.All, middleware)
+			e.Add(1)
+		}
 	} else {
 		for _, in := range plugins.Inputs {
 			e.Add(1)
@@ -72,13 +87,55 @@ func (e *Emitter) Close() {
 	e.plugins.All = nil // avoid Close to make changes again
 }
 
+type simpleWriter struct {
+	w  PluginWriter
+	ch chan *Message
+}
+
+func newSimpleWriter(w PluginWriter) *simpleWriter {
+	s := &simpleWriter{
+		w:  w,
+		ch: make(chan *Message, 65536),
+	}
+	go s.writer()
+	return s
+}
+
+func (s *simpleWriter) writer() {
+	for {
+		msg, ok := <-s.ch
+		if !ok {
+			break
+		}
+		s.w.PluginWrite(msg)
+	}
+}
+
+func (s *simpleWriter) PluginWrite(msg *Message) (n int, err error) {
+	select {
+	default:
+	case s.ch <- msg:
+	}
+	return len(msg.Data), nil
+}
+
 // CopyMulty copies from 1 reader to multiple writers
-func CopyMulty(src PluginReader, writers ...PluginWriter) error {
+func CopyMulty(src PluginReader, orig_writers ...PluginWriter) error {
 	wIndex := 0
 	modifier := NewHTTPModifier(&Settings.ModifierConfig)
 	filteredRequests := make(map[string]int64)
 	filteredRequestsLastCleanTime := time.Now().UnixNano()
 	filteredCount := 0
+
+	var writers []PluginWriter
+	for it := 0; it < len(orig_writers); it++ {
+		if len(orig_writers) > 1 {
+			writers = append(writers, newSimpleWriter(orig_writers[it]))
+		} else {
+			// if only have 1 dest writer, no need to make simple writer
+			writers = append(writers, orig_writers[it])
+		}
+	}
 
 	for {
 		msg, err := src.PluginRead()

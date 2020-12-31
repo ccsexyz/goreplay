@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"hash/fnv"
+	"log"
 	"net"
 	"time"
 )
@@ -73,9 +74,19 @@ func (o *TCPOutput) worker(bufferIndex int) {
 
 	for {
 		msg := <-o.buf[bufferIndex]
-		if _, err = conn.Write(msg.Meta); err == nil {
-			if _, err = conn.Write(msg.Data); err == nil {
-				_, err = conn.Write(payloadSeparatorAsBytes)
+		var n int
+		if n, err = conn.Write(msg.Meta); err == nil {
+			if n != len(msg.Meta) {
+				log.Fatalln(n, len(msg.Meta))
+			}
+			if n, err = conn.Write(msg.Data); err == nil {
+				if n != len(msg.Data) {
+					log.Fatalln(n, len(msg.Data))
+				}
+				n, err = conn.Write(payloadSeparatorAsBytes)
+				if n != len(payloadSeparatorAsBytes) {
+					log.Fatalln(n, len(payloadSeparatorAsBytes))
+				}
 			}
 		}
 

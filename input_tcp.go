@@ -8,6 +8,8 @@ import (
 	"io"
 	"log"
 	"net"
+	"os"
+	"time"
 )
 
 // TCPInput used for internal communication
@@ -21,9 +23,11 @@ type TCPInput struct {
 
 // TCPInputConfig represents configuration of a TCP input plugin
 type TCPInputConfig struct {
-	Secure          bool   `json:"input-tcp-secure"`
-	CertificatePath string `json:"input-tcp-certificate"`
-	KeyPath         string `json:"input-tcp-certificate-key"`
+	Secure          bool          `json:"input-tcp-secure"`
+	CertificatePath string        `json:"input-tcp-certificate"`
+	KeyPath         string        `json:"input-tcp-certificate-key"`
+	Timeout         time.Duration `json:"input-tcp-timeout"`
+	BlockIPs        MultiOption   `json:"input-tcp-block-ip"`
 }
 
 // NewTCPInput constructor for TCPInput, accepts address with port
@@ -100,8 +104,24 @@ var payloadSeparatorAsBytes = []byte(payloadSeparator)
 func (i *TCPInput) handleConnection(conn net.Conn) {
 	defer conn.Close()
 
+	host, _, err := net.SplitHostPort(conn.RemoteAddr().String())
+	if err == nil {
+		for _, ip := range i.config.BlockIPs {
+			if ip == host {
+				// discard this connection
+				fmt.Fprintln(os.Stderr, "block connection from", conn.RemoteAddr())
+				time.Sleep(time.Second)
+				return
+			}
+		}
+	}
+
 	reader := bufio.NewReader(conn)
 	var buffer bytes.Buffer
+
+	lastUpdateTime := time.Now()
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
 
 	for {
 		line, err := reader.ReadBytes('\n')
@@ -119,8 +139,26 @@ func (i *TCPInput) handleConnection(conn net.Conn) {
 			// unread the '\n' before monkeys
 			buffer.UnreadByte()
 			var msg Message
-			msg.Meta, msg.Data = payloadMetaWithBody(buffer.Bytes())
-			i.data <- &msg
+			meta, data := payloadMetaWithBody(buffer.Bytes())
+			msg.Meta = make([]byte, len(meta))
+			msg.Data = make([]byte, len(data))
+			copy(msg.Meta, meta)
+			copy(msg.Data, data)
+
+		F:
+			for {
+				select {
+				case i.data <- &msg:
+					lastUpdateTime = time.Now()
+					break F
+
+				case <-ticker.C:
+					expiredTime := lastUpdateTime.Add(i.config.Timeout)
+					if time.Now().After(expiredTime) {
+						return
+					}
+				}
+			}
 			buffer.Reset()
 		} else {
 			buffer.Write(line)
