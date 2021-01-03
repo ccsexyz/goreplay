@@ -105,6 +105,7 @@ func init() {
 	flag.StringVar(&Settings.InputTCPConfig.KeyPath, "input-tcp-certificate-key", "", "Path to PEM encoded certificate key file. Used when TLS turned on.")
 	flag.DurationVar(&Settings.InputTCPConfig.Timeout, "input-tcp-timeout", 5*time.Second, "Specify TCP intput timeout. By default 5s. Example --input-tcp-timeout 5s")
 	flag.Var(&Settings.InputTCPConfig.BlockIPs, "input-tcp-block-ip", "Block connection from these ip, eg: --input-tcp-block-ip 1.1.1.1")
+	flag.BoolVar(&Settings.InputTCPConfig.RewriteTimeStamp, "input-tcp-rewrite-time-stamp", false, "rewrite meta timestamp")
 
 	flag.Var(&Settings.OutputTCP, "output-tcp", "Used for internal communication between Gor instances. Example: \n\t# Listen for requests on 80 port and forward them to other Gor instance on 28020 port\n\tgor --input-raw :80 --output-tcp replay.local:28020")
 	flag.BoolVar(&Settings.OutputTCPConfig.Secure, "output-tcp-secure", false, "Use TLS secure connection. --input-file on another end should have TLS turned on as well.")

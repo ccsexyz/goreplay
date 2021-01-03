@@ -23,11 +23,12 @@ type TCPInput struct {
 
 // TCPInputConfig represents configuration of a TCP input plugin
 type TCPInputConfig struct {
-	Secure          bool          `json:"input-tcp-secure"`
-	CertificatePath string        `json:"input-tcp-certificate"`
-	KeyPath         string        `json:"input-tcp-certificate-key"`
-	Timeout         time.Duration `json:"input-tcp-timeout"`
-	BlockIPs        MultiOption   `json:"input-tcp-block-ip"`
+	Secure           bool          `json:"input-tcp-secure"`
+	RewriteTimeStamp bool          `json:"input-tcp-rewrite-time-stamp"`
+	CertificatePath  string        `json:"input-tcp-certificate"`
+	KeyPath          string        `json:"input-tcp-certificate-key"`
+	Timeout          time.Duration `json:"input-tcp-timeout"`
+	BlockIPs         MultiOption   `json:"input-tcp-block-ip"`
 }
 
 // NewTCPInput constructor for TCPInput, accepts address with port
@@ -101,6 +102,26 @@ func (i *TCPInput) listen(address string) {
 
 var payloadSeparatorAsBytes = []byte(payloadSeparator)
 
+// copyBuffer alloc & copy buffer
+func copyBuffer(buf []byte) []byte {
+	new_buf := make([]byte, len(buf))
+	copy(new_buf, buf)
+	return new_buf
+}
+
+// rewriteTimeStamp rewrite timestamp in meta to current time
+func rewriteTimeStamp(buf []byte) []byte {
+	meta := payloadMeta(buf)
+
+	if len(meta) > 3 {
+		meta[2] = []byte(fmt.Sprintf("%d", time.Now().UnixNano()))
+
+		return append(bytes.Join(meta, []byte(" ")), '\n')
+	}
+
+	return copyBuffer(buf)
+}
+
 func (i *TCPInput) handleConnection(conn net.Conn) {
 	defer conn.Close()
 
@@ -140,10 +161,13 @@ func (i *TCPInput) handleConnection(conn net.Conn) {
 			buffer.UnreadByte()
 			var msg Message
 			meta, data := payloadMetaWithBody(buffer.Bytes())
-			msg.Meta = make([]byte, len(meta))
-			msg.Data = make([]byte, len(data))
-			copy(msg.Meta, meta)
-			copy(msg.Data, data)
+			msg.Meta = copyBuffer(meta)
+			msg.Data = copyBuffer(data)
+
+			// Fix inconsistent timestamps of different machines.
+			if i.config.RewriteTimeStamp {
+				msg.Meta = rewriteTimeStamp(msg.Meta)
+			}
 
 		F:
 			for {
