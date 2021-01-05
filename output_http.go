@@ -4,11 +4,14 @@ import (
 	"bufio"
 	"bytes"
 	"crypto/tls"
+	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
 	"math"
+	"math/rand"
 	"net"
 	"net/http"
 	"net/url"
@@ -47,6 +50,7 @@ type HTTPOutputConfig struct {
 	BodyLimitHeader string        `json:"output-http-body-limit-header"`
 	AddrHeader      string        `json:"output-http-addr-header"`
 	PortHeader      string        `json:"output-http-port-header"`
+	TraceIdHeader   string        `json:"output-http-trace-id-header"`
 	PortDiff        int           `json:"output-http-port-diff"`
 	LimitRate       int           `json:"output-http-limit-rate"`
 	Timeout         time.Duration `json:"output-http-timeout"`
@@ -313,6 +317,12 @@ func (l *limitWriter) Write(b []byte) (n int, err error) {
 	return
 }
 
+func getTraceId() string {
+	buf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(buf, rand.Uint64())
+	return hex.EncodeToString(buf)
+}
+
 // Send sends an http request using client create by NewHTTPClient
 func (c *HTTPClient) Send(data []byte) ([]byte, error) {
 	var req *http.Request
@@ -320,6 +330,7 @@ func (c *HTTPClient) Send(data []byte) ([]byte, error) {
 	var err error
 	var bodyRead int64
 	var bodyLimit int64
+	var traceId string
 
 	req, err = http.ReadRequest(bufio.NewReader(bytes.NewReader(data)))
 	if err != nil {
@@ -328,6 +339,11 @@ func (c *HTTPClient) Send(data []byte) ([]byte, error) {
 	// we don't send CONNECT or OPTIONS request
 	if req.Method == http.MethodConnect {
 		return nil, nil
+	}
+
+	if c.config.TraceIdHeader != "" {
+		traceId = getTraceId()
+		req.Header.Set(c.config.TraceIdHeader, traceId)
 	}
 
 	url := c.config.url
@@ -430,7 +446,7 @@ func (c *HTTPClient) Send(data []byte) ([]byte, error) {
 		bodyRead, err = io.Copy(bw, resp.Body)
 	}
 	if err != nil {
-		log.Println("[OUTPUT-HTTP] after read", bodyRead, "bytes body, got error", err)
+		log.Println("[OUTPUT-HTTP] after read", bodyRead, "bytes body, got error", err, "trace id", traceId)
 	}
 	Debug(1, bodyRead, err)
 	return nil, nil

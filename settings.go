@@ -170,6 +170,7 @@ func init() {
 	flag.StringVar(&Settings.OutputHTTPConfig.PortHeader, "output-http-port-header", "", "set output http port header name")
 	flag.IntVar(&Settings.OutputHTTPConfig.PortDiff, "output-http-port-diff", 0, "the diff of port header and actual used port")
 	flag.IntVar(&Settings.OutputHTTPConfig.LimitRate, "output-http-limit-rate", 0, "set the limit rate of http client")
+	flag.StringVar(&Settings.OutputHTTPConfig.TraceIdHeader, "output-http-trace-id-header", "", "set trace id header")
 	/* outputHTTPConfig */
 
 	flag.Var(&Settings.OutputBinary, "output-binary", "Forwards incoming binary payloads to given address.\n\t# Redirect all incoming requests to staging.com address \n\tgor --input-raw :80 --input-raw-protocol binary --output-binary staging.com:80")

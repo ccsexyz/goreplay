@@ -35,6 +35,8 @@ func main() {
 		runtime.GOMAXPROCS(runtime.NumCPU() * 2)
 	}
 
+	log.SetFlags(log.Lshortfile | log.Ldate | log.Ltime | log.Lmicroseconds)
+
 	args := os.Args[1:]
 	var plugins *InOutPlugins
 	if len(args) > 0 && args[0] == "file-server" {
