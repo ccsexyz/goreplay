@@ -7,7 +7,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/buger/goreplay/capture"
+	"github.com/ccsexyz/goreplay/capture"
 )
 
 /*

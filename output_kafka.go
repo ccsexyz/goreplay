@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/buger/goreplay/byteutils"
-	"github.com/buger/goreplay/proto"
+	"github.com/ccsexyz/goreplay/byteutils"
+	"github.com/ccsexyz/goreplay/proto"
 
 	"github.com/Shopify/sarama"
 	"github.com/Shopify/sarama/mocks"

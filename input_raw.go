@@ -9,10 +9,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/buger/goreplay/capture"
-	"github.com/buger/goreplay/proto"
-	"github.com/buger/goreplay/size"
-	"github.com/buger/goreplay/tcp"
+	"github.com/ccsexyz/goreplay/capture"
+	"github.com/ccsexyz/goreplay/proto"
+	"github.com/ccsexyz/goreplay/size"
+	"github.com/ccsexyz/goreplay/tcp"
 )
 
 // TCPProtocol is a number to indicate type of protocol

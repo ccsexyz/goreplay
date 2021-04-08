@@ -24,7 +24,7 @@ import (
 	"net/textproto"
 	"strings"
 
-	"github.com/buger/goreplay/byteutils"
+	"github.com/ccsexyz/goreplay/byteutils"
 )
 
 // CRLF In HTTP newline defined by 2 bytes (for both windows and *nix support)
@@ -318,6 +318,7 @@ var Methods = [...]string{
 	http.MethodConnect, http.MethodDelete, http.MethodGet,
 	http.MethodHead, http.MethodOptions, http.MethodPatch,
 	http.MethodPost, http.MethodPut, http.MethodTrace,
+	"PURGE", "QUERY",
 }
 
 const (

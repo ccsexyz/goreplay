@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/buger/goreplay/capture"
-	"github.com/buger/goreplay/size"
+	"github.com/ccsexyz/goreplay/capture"
+	"github.com/ccsexyz/goreplay/size"
 )
 
 // Stats every message carry its own stats object

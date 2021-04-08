@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/buger/goreplay/byteutils"
+	"github.com/ccsexyz/goreplay/byteutils"
 )
 
 // Emitter represents an abject to manage plugins communication
