@@ -393,6 +393,27 @@ func (c *HTTPClient) Send(data []byte) ([]byte, error) {
 		}
 	}
 
+	forcePortHeader := "X-Gor-Force-Port"
+	forcePort := req.Header.Get(forcePortHeader)
+	req.Header.Del(forcePortHeader)
+
+	if forcePort != "" {
+		_, err0 := strconv.Atoi(forcePort)
+
+		if err0 == nil {
+			url0 := *url
+
+			host0, _, err1 := net.SplitHostPort(url.Host)
+			if err1 == nil {
+				url0.Host = host0 + ":" + forcePort
+			} else {
+				url0.Host = url0.Host + ":" + forcePort
+			}
+
+			url = &url0
+		}
+	}
+
 	bodyLimit = -1
 	if c.config.BodyLimitHeader != "" {
 		bodyLimitValue := req.Header.Get(c.config.BodyLimitHeader)
